@@ -1,0 +1,87 @@
+name: Build and Publish Docker image
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "./**/*.md"
+      - "LICENSE"
+
+env:
+  IMAGE_NAME: cdalvaro/ceph
+  PLATFORMS: linux/amd64,linux/arm64
+  CACHE_PATH: ${{ github.workspace }}/.buildx-cache
+  REGISTRIES: ghcr.io
+
+jobs:
+  metadata:
+    name: Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.tags.outputs.tags }}
+      ceph_version: ${{ steps.ceph_version.outputs.ceph_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Image Tags
+        id: tags
+        run: |
+          IMAGE_TAG=v"$(cat VERSION)"
+          [[ -z "${IMAGE_TAG}" ]] && IMAGE_TAG='latest'
+
+          DOCKER_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
+          TAGS=""
+          for registry in ${REGISTRIES}; do
+            TAGS="${TAGS},${registry}/${DOCKER_IMAGE}"
+          done
+
+          # Remove the leading comma
+          TAGS="${TAGS#,}"
+
+          echo "Image Tag: '${IMAGE_TAG}'"
+          echo "Docker image: '${DOCKER_IMAGE}'"
+          echo "Tags: ${TAGS}"
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+
+      - name: Ceph version
+        id: ceph_version
+        run: |
+          CEPH_VERSION="$(cat VERSION)"
+          echo "Ceph version: ${CEPH_VERSION}"
+          echo "ceph_version=${CEPH_VERSION}" >> $GITHUB_OUTPUT
+
+  publish:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+    needs: metadata
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6.7.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            CEPH_VERSION=${{ needs.metadata.outputs.ceph_version }}
+          pull: true
+          push: true
+          tags: ${{ needs.metadata.outputs.tags }}
