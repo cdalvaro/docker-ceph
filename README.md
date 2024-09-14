@@ -1,4 +1,4 @@
-# Ceph
+# Ceph v18.2.4
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="/media/CephLogoDark@2x.png">
